@@ -3,50 +3,61 @@ package defaults
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type DefaultConfig struct {
-	BaseURL           string
-	CloudflareBaseURL string
-	TTL               int // in sec
-	DNSServerAddress  string
-	Token             string
-	ZoneID            string
-	DownloadDir       string
+	Domain           string
+	TTL              int // in sec
+	DNSServerAddress string
+	DownloadDir      string
+
+	CloudflareBaseURL  string
+	CloudflareAPIToken string
+	CloudflareZoneID   string
+
+	BunnyBaseURL  string
+	BunnyAPIToken string
+	BunnyZoneID   string
 }
 
 func NewDefaultConfig() *DefaultConfig {
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = "auenkr.qzz.io"
-	}
-	cloudflareBaseURL := os.Getenv("CLOUDFLARE_BASE_URL")
-	if cloudflareBaseURL == "" {
-		cloudflareBaseURL = "https://api.cloudflare.com/client/v4"
-	}
-	token := os.Getenv("CLOUDFLARE_API_TOKEN")
-	zoneID := os.Getenv("CLOUDFLARE_ZONE_ID")
+	domain := getDefaultValue("DOMAIN", "auenkr.qzz.io")
+	cloudflareBaseURL := getDefaultValue("CLOUDFLARE_BASE_URL", "https://api.cloudflare.com/client/v4")
 
-	dnsServerAddress := os.Getenv("DNS_SERVER_ADDRESS")
-	if dnsServerAddress == "" {
-		dnsServerAddress = "1.1.1.1:53"
-	}
+	cloudflareAPIToken := getDefaultValue("CLOUDFLARE_API_TOKEN", "")
+	cloudflareZoneID := getDefaultValue("CLOUDFLARE_ZONE_ID", "")
 
-	downloadDir := os.Getenv("DOWNLOAD_DIR")
-	if downloadDir == "" {
-		downloadDir = ".temp/download"
-	}
+	dnsServerAddress := getDefaultValue("DNS_SERVER_ADDRESS", "1.1.1.1:53")
+	downloadDir := getDefaultValue("DOWNLOAD_DIR", ".temp/download")
+
+	bunnyBaseURL := getDefaultValue("BUNNY_BASE_URL", "https://api.bunny.net")
+	bunnyAPIToken := getDefaultValue("BUNNY_API_TOKEN", "")
+	bunnyZoneID := getDefaultValue("BUNNY_ZONE_ID", "")
+
+	ttl, _ := strconv.Atoi(getDefaultValue("TTL", "3600"))
 
 	config := &DefaultConfig{
-		BaseURL:           baseURL,
-		CloudflareBaseURL: cloudflareBaseURL,
-		TTL:               1,
-		Token:             token,
-		ZoneID:            zoneID,
-		DNSServerAddress:  dnsServerAddress,
-		DownloadDir:       downloadDir,
+		Domain:             domain,
+		TTL:                ttl,
+		DNSServerAddress:   dnsServerAddress,
+		DownloadDir:        downloadDir,
+		BunnyBaseURL:       bunnyBaseURL,
+		BunnyAPIToken:      bunnyAPIToken,
+		BunnyZoneID:        bunnyZoneID,
+		CloudflareBaseURL:  cloudflareBaseURL,
+		CloudflareAPIToken: cloudflareAPIToken,
+		CloudflareZoneID:   cloudflareZoneID,
 	}
 
 	fmt.Println("Config:", config)
 	return config
+}
+
+func getDefaultValue(env string, defaultValue string) string {
+	res := os.Getenv(env)
+	if res == "" {
+		res = defaultValue
+	}
+	return res
 }

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -12,7 +11,7 @@ import (
 )
 
 type DNSTXTHandler interface {
-	ReadTXTRecord(context.Context, string) ([]byte, error)
+	ReadTXTRecord(domain string) (string, error)
 }
 
 type DNSHandler struct {
@@ -27,20 +26,20 @@ func NewDNSHandler(client *dns.Client, config *defaults.DefaultConfig) DNSTXTHan
 	}
 }
 
-func (d *DNSHandler) ReadTXTRecord(ctx context.Context, record string) ([]byte, error) {
-	msg := dns.NewMsg(record, dns.TypeTXT)
-	ctx = context.TODO()
-	resp, _, err := d.client.Exchange(ctx, msg, "udp", d.config.DNSServerAddress)
+func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
+	fmt.Println("ReadTXTRecord", domain)
+	msg := dns.NewMsg(domain, dns.TypeTXT)
+	resp, _, err := d.client.Exchange(context.TODO(), msg, "udp", d.config.DNSServerAddress)
 	if err != nil {
 		fmt.Println("err", err)
 		fmt.Printf("%#v\n", resp)
-		return nil, err
+		return "", err
 	}
 	if resp == nil {
-		return nil, fmt.Errorf("nil DNS response")
+		return "", fmt.Errorf("nil DNS response")
 	}
 	if resp.Rcode != dns.RcodeSuccess {
-		return nil, fmt.Errorf("dns query failed: %s", dns.RcodeToString[resp.Rcode])
+		return "", fmt.Errorf("dns query failed: %s", dns.RcodeToString[resp.Rcode])
 	}
 	for _, rr := range resp.Answer {
 		txt, ok := rr.(*dns.TXT)
@@ -48,9 +47,9 @@ func (d *DNSHandler) ReadTXTRecord(ctx context.Context, record string) ([]byte, 
 			continue
 		}
 		if len(txt.Txt) == 0 {
-			return nil, fmt.Errorf("empty TXT answer")
+			return "", fmt.Errorf("empty TXT answer")
 		}
-		return base64.StdEncoding.DecodeString(strings.Join(txt.Txt, ""))
+		return strings.Join(txt.Txt, ""), nil
 	}
-	return nil, fmt.Errorf("no TXT record found for %q", record)
+	return "", fmt.Errorf("no TXT record found for %q", domain)
 }

@@ -1,3 +1,4 @@
+// Package handler cloudflare needs refactoring according to DNSProvider Interface
 package handler
 
 import (
@@ -16,17 +17,11 @@ type CloudflareDNS struct {
 	config *defaults.DefaultConfig
 }
 
-func NewDNSProviderClient(config *defaults.DefaultConfig) *CloudflareDNS {
+func NewCloudflareDNSProviderClient(config *defaults.DefaultConfig) *CloudflareDNS {
 	return &CloudflareDNS{
 		config: config,
 	}
 }
-
-type RecordType string
-
-const (
-	TXTRecord RecordType = "TXT"
-)
 
 type CreateRecordRequest struct {
 	Name    string     `json:"name"`
@@ -35,23 +30,6 @@ type CreateRecordRequest struct {
 	Comment string     `json:"comment"`
 	Proxied bool       `json:"proxied"`
 	TTL     int        `json:"ttl"`
-}
-
-type Record struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Type              string   `json:"type"`
-	Content           string   `json:"content"`
-	Proxiable         bool     `json:"proxiable"`
-	Proxied           bool     `json:"proxied"`
-	TTL               int      `json:"ttl"`
-	Settings          any      `json:"settings"`
-	Meta              any      `json:"meta"`
-	Comment           string   `json:"comment"`
-	Tags              []string `json:"tags"`
-	CreatedOn         string   `json:"created_on"`
-	ModifiedOn        string   `json:"modified_on"`
-	CommentModifiedOn string   `json:"comment_modified_on"`
 }
 
 type CreateRecordResponse struct {
@@ -65,7 +43,7 @@ func (d *CloudflareDNS) CreateTXTRecord(ctx context.Context, record string, valu
 	if len(value) > MaxChunkSize {
 		return CreateRecordResponse{}, fmt.Errorf("txt record value is too long")
 	}
-	url := fmt.Sprintf("%s/zones/%s/dns_records", d.config.CloudflareBaseURL, d.config.ZoneID)
+	url := fmt.Sprintf("%s/zones/%s/dns_records", d.config.CloudflareBaseURL, d.config.CloudflareZoneID)
 	method := "POST"
 	base64Value := base64.StdEncoding.EncodeToString(value)
 	createRecordReq := CreateRecordRequest{
@@ -86,7 +64,7 @@ func (d *CloudflareDNS) CreateTXTRecord(ctx context.Context, record string, valu
 	if err != nil {
 		return CreateRecordResponse{}, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.CloudflareAPIToken))
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := client.Do(req)
@@ -118,7 +96,7 @@ type DeleteRecordResponse struct {
 }
 
 func (d *CloudflareDNS) DeleteTXTRecord(ctx context.Context, id string) (DeleteRecordResponse, error) {
-	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", d.config.CloudflareBaseURL, d.config.ZoneID, id)
+	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", d.config.CloudflareBaseURL, d.config.CloudflareZoneID, id)
 	method := "DELETE"
 
 	client := &http.Client{}
@@ -126,7 +104,7 @@ func (d *CloudflareDNS) DeleteTXTRecord(ctx context.Context, id string) (DeleteR
 	if err != nil {
 		return DeleteRecordResponse{}, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.CloudflareAPIToken))
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := client.Do(req)
@@ -167,7 +145,7 @@ type ListRecordsResponse struct {
 }
 
 func (d *CloudflareDNS) GetTXTRecords(ctx context.Context, record string) (Record, error) {
-	url := fmt.Sprintf("%s/zones/%s/dns_records?name.exact=%s", d.config.CloudflareBaseURL, d.config.ZoneID, record)
+	url := fmt.Sprintf("%s/zones/%s/dns_records?name.exact=%s", d.config.CloudflareBaseURL, d.config.CloudflareZoneID, record)
 	method := "GET"
 
 	client := &http.Client{}
@@ -175,7 +153,7 @@ func (d *CloudflareDNS) GetTXTRecords(ctx context.Context, record string) (Recor
 	if err != nil {
 		return Record{}, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.config.CloudflareAPIToken))
 
 	res, err := client.Do(req)
 	if err != nil {

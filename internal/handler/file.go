@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"math"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"dns-storage/pkg/defaults"
+
+	"github.com/google/uuid"
 )
 
 // MaxChunkSize bytes store in TXT is 255 character limit
@@ -22,19 +25,19 @@ const MaxChunkSize = 191
 
 type FileHandler interface {
 	Upload(ctx context.Context, filePath string) (string, error)          // return index file record
-	Download(ctx context.Context, indexFileRecord string) (string, error) // return file path
-	Delete(ctx context.Context, record string) error
+	Download(ctx context.Context, indexFileRecord string) (string, error) // return downloaded file path
+	Delete(ctx context.Context, indexFileRecord string) error
 }
 
 type FileUploader struct {
 	config            *defaults.DefaultConfig
-	dnsProviderClient *CloudflareDNS
+	dnsProviderClient DNSTXTProvider
 	dnsClient         DNSTXTHandler
 }
 
 func NewFileHander(
 	config *defaults.DefaultConfig,
-	dnsProvierCli *CloudflareDNS,
+	dnsProvierCli DNSTXTProvider,
 	dnsCli DNSTXTHandler,
 ) FileHandler {
 	return &FileUploader{
@@ -62,8 +65,17 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string) (string, err
 		return "", err
 	}
 
+	subdomain := uuid.New().String()
 	name := fileInfo.Name()
-	fmt.Println("TotalChunks", math.Ceil(float64(fileInfo.Size())/float64(MaxChunkSize)))
+	totalChunks := int(math.Ceil(float64(fileInfo.Size()) / float64(MaxChunkSize)))
+
+	// Create a index TXT record for that chuck file
+	// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK_NO>
+	txtRecord := fmt.Sprintf("%s.%d", name, totalChunks)
+	createIndexRecord, err := f.dnsProviderClient.CreateTXTRecord(ctx, subdomain, txtRecord)
+	if err != nil {
+		return "", err
+	}
 
 	// Start reading the file into MAX_CHUNK_SIZE byte and add its txt record (io.pipe)
 	data := make([]byte, MaxChunkSize)
@@ -78,40 +90,33 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string) (string, err
 			return "", err
 		}
 		data = data[:n]
-		subdomain := fmt.Sprintf("%s.%d.%s", name, noChunks, f.config.BaseURL)
-		_, err = f.dnsProviderClient.CreateTXTRecord(ctx, subdomain, data)
+		subdomain := fmt.Sprintf("%s.%d", subdomain, noChunks)
+		base64Value := base64.StdEncoding.EncodeToString(data)
+		_, err = f.dnsProviderClient.CreateTXTRecord(ctx, subdomain, base64Value)
 		if err != nil {
 			return "", err
 		}
 		offset += int64(n)
 		noChunks++
 		fmt.Println("File Chunk", noChunks, subdomain)
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Create a index TXT record for that chuck file
-	// <NAME.FILE_TYPE>.<END_CHUNK|100>.<DomainName>
-	// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK_NO>
-	record := fmt.Sprintf("%s.%s", name, f.config.BaseURL)
-	txtRecord := []byte(fmt.Sprintf("%s.%d", name, noChunks))
-
-	createIndexRecord, err := f.dnsProviderClient.CreateTXTRecord(ctx, record, txtRecord)
-	if err != nil {
-		return "", err
-	}
-
-	return createIndexRecord.Result.Name, nil
+	indexFile := fmt.Sprintf("%s.%s", createIndexRecord.Subdomain, f.config.Domain)
+	return indexFile, nil
 }
 
 func (f *FileUploader) Download(ctx context.Context, indexFileRecord string) (string, error) {
 	// Get TXT Record
-	txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFileRecord)
+	txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
 	if err != nil {
 		return "", err
 	}
 
+	subdomain := strings.Split(indexFileRecord, "."+f.config.Domain)[0]
+
 	// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK|100>
-	temp := strings.Split(string(txtRecord), ".")
+	temp := strings.Split(txtRecord, ".")
 	fileName := strings.Join(temp[:len(temp)-1], ".")
 	noChunks, err := strconv.Atoi(temp[len(temp)-1])
 	if err != nil {
@@ -126,48 +131,65 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string) (st
 		return "", err
 	}
 	defer file.Close()
+
 	for i := range noChunks {
-		domain := fmt.Sprintf("%s.%d.%s", fileName, i, f.config.BaseURL)
-		txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, domain)
+		domain := fmt.Sprintf("%s.%d.%s", subdomain, i, f.config.Domain)
+		fmt.Println("Domain:", domain)
+		txtRecord, err := f.dnsClient.ReadTXTRecord(domain)
 		if err != nil {
 			return "", err
 		}
-		file.WriteAt(txtRecord, int64(i)*MaxChunkSize)
+		rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
+		if err != nil {
+			return "", err
+		}
+		file.WriteAt(rawBinary, int64(i)*MaxChunkSize)
 		fmt.Println("File Chunk", i)
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
 	return downloadPath, nil
 }
 
-func (f *FileUploader) Delete(ctx context.Context, indexFile string) error {
+func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) error {
 	// Check correct index file record
 	// Get TXT Record
-	txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFile)
+	txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("TXT Record:", string(txtRecord))
-	temp := strings.Split(string(txtRecord), ".")
-	fileName := strings.Join(temp[:len(temp)-1], ".")
+	subdomain := strings.Split(indexFileRecord, "."+f.config.Domain)[0]
+
+	fmt.Println("TXT Record:", txtRecord)
+	temp := strings.Split(txtRecord, ".")
 	noChunks, err := strconv.Atoi(temp[len(temp)-1])
 	if err != nil {
 		return err
 	}
 
 	for i := range noChunks {
-		subdomain := fmt.Sprintf("%s.%d.%s", fileName, i, f.config.BaseURL)
+		subdomain := fmt.Sprintf("%s.%d", subdomain, i)
 		record, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
 		if err != nil {
 			return err
 		}
-		_, err = f.dnsProviderClient.DeleteTXTRecord(ctx, record.ID)
+		err = f.dnsProviderClient.DeleteTXTRecord(ctx, record.ID)
 		if err != nil {
 			return err
 		}
 		fmt.Println("Deleted", subdomain)
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
+
+	indexRecord, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
+	if err != nil {
+		return err
+	}
+	err = f.dnsProviderClient.DeleteTXTRecord(ctx, indexRecord.ID)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Deleted index File", indexFileRecord)
 	return nil
 }
 
