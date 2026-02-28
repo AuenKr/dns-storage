@@ -12,6 +12,7 @@ type DefaultConfig struct {
 	DNSServerAddress  string
 	Token             string
 	ZoneID            string
+	DownloadDir       string
 }
 
 func NewDefaultConfig() *DefaultConfig {
@@ -31,6 +32,11 @@ func NewDefaultConfig() *DefaultConfig {
 		dnsServerAddress = "1.1.1.1:53"
 	}
 
+	downloadDir := os.Getenv("DOWNLOAD_DIR")
+	if downloadDir == "" {
+		downloadDir = ".temp/download"
+	}
+
 	config := &DefaultConfig{
 		BaseURL:           baseURL,
 		CloudflareBaseURL: cloudflareBaseURL,
@@ -38,6 +44,7 @@ func NewDefaultConfig() *DefaultConfig {
 		Token:             token,
 		ZoneID:            zoneID,
 		DNSServerAddress:  dnsServerAddress,
+		DownloadDir:       downloadDir,
 	}
 
 	fmt.Println("Config:", config)

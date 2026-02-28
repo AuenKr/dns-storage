@@ -13,9 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const FilePath = ".temp/image.jpeg"
-
-// const FilePath = ".temp/test.txt"
+const IndexFile = "image.jpeg.auenkr.qzz.io"
 
 func main() {
 	app := fx.New(
@@ -29,11 +27,9 @@ func main() {
 
 func runApp(cloudflareCli *handler.CloudflareDNS, dnsCli handler.DNSTXTHandler, fileHandler handler.FileHandler, logger *zap.Logger, config *defaults.DefaultConfig) {
 	ctx := context.Background()
-
-	// File Upload
-	indexFile, err := fileHandler.Upload(ctx, FilePath)
+	err := fileHandler.Delete(ctx, IndexFile)
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(indexFile)
+	fmt.Println("DeleteFile Path:", IndexFile)
 }
