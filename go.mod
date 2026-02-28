@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	codeberg.org/miekg/dns v0.6.62
+	github.com/joho/godotenv v1.5.1
 	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.27.1
 )

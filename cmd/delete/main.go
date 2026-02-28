@@ -9,9 +9,12 @@ import (
 	"dns-storage/pkg"
 	"dns-storage/pkg/defaults"
 
+	"github.com/joho/godotenv"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
+
+var _ = godotenv.Load()
 
 const IndexFile = "image.jpeg.auenkr.qzz.io"
 

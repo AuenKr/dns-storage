@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,6 +63,7 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string) (string, err
 	}
 
 	name := fileInfo.Name()
+	fmt.Println("TotalChunks", math.Ceil(float64(fileInfo.Size())/float64(MaxChunkSize)))
 
 	// Start reading the file into MAX_CHUNK_SIZE byte and add its txt record (io.pipe)
 	data := make([]byte, MaxChunkSize)
