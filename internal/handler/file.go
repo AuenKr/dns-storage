@@ -149,6 +149,7 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string) (st
 		txtRecord, err := f.dnsClient.ReadTXTRecord(domain)
 		if err != nil {
 			fmt.Println("Retrying: Error Reading", err)
+			time.Sleep(1000 * time.Millisecond)
 			continue
 		}
 		rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
