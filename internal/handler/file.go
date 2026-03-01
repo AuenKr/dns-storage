@@ -65,9 +65,11 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string) (string, err
 		return "", err
 	}
 
+	startTime := time.Now()
 	subdomain := uuid.New().String()
 	name := fileInfo.Name()
 	totalChunks := int(math.Ceil(float64(fileInfo.Size()) / float64(MaxChunkSize)))
+	fmt.Println("Total Chunks:", totalChunks)
 
 	// Create a index TXT record for that chuck file
 	// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK_NO>
@@ -98,15 +100,17 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string) (string, err
 		}
 		offset += int64(n)
 		noChunks++
-		fmt.Println("File Chunk", noChunks, subdomain)
-		time.Sleep(25 * time.Millisecond)
+		fmt.Println("File Chunk", noChunks, subdomain, time.Since(startTime))
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	indexFile := fmt.Sprintf("%s.%s", createIndexRecord.Subdomain, f.config.Domain)
+	fmt.Println("Total Time Taken", time.Since(startTime))
 	return indexFile, nil
 }
 
 func (f *FileUploader) Download(ctx context.Context, indexFileRecord string) (string, error) {
+	startTime := time.Now()
 	// Get TXT Record
 	txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
 	if err != nil {
@@ -124,29 +128,46 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string) (st
 	}
 	fmt.Println("FileName:", fileName)
 	fmt.Println("Total noChunks:", noChunks)
+	fmt.Println("Total Time Taken", time.Since(startTime))
 
 	downloadPath := filepath.Join(f.config.DownloadDir, fileName)
-	file, err := os.Create(downloadPath)
+	var file *os.File
+	file, err = os.OpenFile(downloadPath, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
-
-	for i := range noChunks {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	fmt.Println("FileStats", fileInfo.Size())
+	downloadChunks := int(math.Ceil(float64(fileInfo.Size()) / float64(MaxChunkSize)))
+	fmt.Println("DownloadChunks", downloadChunks)
+	for i := downloadChunks; i < noChunks; {
 		domain := fmt.Sprintf("%s.%d.%s", subdomain, i, f.config.Domain)
-		fmt.Println("Domain:", domain)
 		txtRecord, err := f.dnsClient.ReadTXTRecord(domain)
 		if err != nil {
-			return "", err
+			fmt.Println("Retrying: Error Reading", err)
+			continue
 		}
 		rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
 		if err != nil {
 			return "", err
 		}
-		file.WriteAt(rawBinary, int64(i)*MaxChunkSize)
-		fmt.Println("File Chunk", i)
+		n, err := file.WriteAt(rawBinary, int64(i)*MaxChunkSize)
+		if err != nil {
+			return "", err
+		}
+		if err := file.Sync(); err != nil {
+			return "", err
+		}
+		fmt.Println("File Chunk", i, " bytes written ", n, time.Since(startTime))
 		time.Sleep(25 * time.Millisecond)
+		i++
 	}
+
+	fmt.Println("Total Time Taken", time.Since(startTime))
 	return downloadPath, nil
 }
 
@@ -167,18 +188,23 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) error
 		return err
 	}
 
-	for i := range noChunks {
+	for i := 0; i < noChunks; {
 		subdomain := fmt.Sprintf("%s.%d", subdomain, i)
 		record, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
 		if err != nil {
-			return err
+			fmt.Println("Retrying: Error Reading", err)
+			time.Sleep(1000 * time.Millisecond)
+			continue
 		}
 		err = f.dnsProviderClient.DeleteTXTRecord(ctx, record.ID)
 		if err != nil {
-			return err
+			fmt.Println("Retrying: Error Deleting", err)
+			time.Sleep(1000 * time.Millisecond)
+			continue
 		}
 		fmt.Println("Deleted", subdomain)
 		time.Sleep(25 * time.Millisecond)
+		i++
 	}
 
 	indexRecord, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)

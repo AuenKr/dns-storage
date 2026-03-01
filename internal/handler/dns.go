@@ -27,7 +27,6 @@ func NewDNSHandler(client *dns.Client, config *defaults.DefaultConfig) DNSTXTHan
 }
 
 func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
-	fmt.Println("ReadTXTRecord", domain)
 	msg := dns.NewMsg(domain, dns.TypeTXT)
 	resp, _, err := d.client.Exchange(context.TODO(), msg, "udp", d.config.DNSServerAddress)
 	if err != nil {
