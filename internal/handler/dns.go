@@ -28,7 +28,7 @@ func NewDNSHandler(client *dns.Client, config *defaults.DefaultConfig) DNSTXTHan
 
 func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
 	msg := dns.NewMsg(domain, dns.TypeTXT)
-	resp, _, err := d.client.Exchange(context.TODO(), msg, "udp", d.config.DNSServerAddress)
+	resp, _, err := d.client.Exchange(context.TODO(), msg, string(d.config.NetworkLayer), d.config.DNSServerAddress)
 	if err != nil {
 		fmt.Println("err", err)
 		fmt.Printf("%#v\n", resp)
@@ -50,5 +50,5 @@ func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
 		}
 		return strings.Join(txt.Txt, ""), nil
 	}
-	return "", fmt.Errorf("no TXT record found for %q", domain)
+	return "", fmt.Errorf("no TXT record found for %q %#v", domain, resp)
 }

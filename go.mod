@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/klauspost/compress v1.18.4 // indirect
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
