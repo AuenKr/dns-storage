@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"dns-storage/pkg/defaults"
@@ -86,7 +85,7 @@ func (b *BunnyDNSProvider) CreateTXTRecord(ctx context.Context, subdomain string
 	}
 
 	return Record{
-		ID:        strconv.Itoa(result.ID),
+		ID:        result.ID,
 		Subdomain: result.Name,
 		Type:      TXTRecord,
 		Content:   result.Value,
@@ -106,52 +105,21 @@ type BunnyGetZoneResponse struct {
 
 var (
 	CacheGetResponse BunnyGetZoneResponse
-	cacheTime        time.Time = time.Now().Add(-5 * time.Minute)
+	lastCacheTime    time.Time = time.Now().Add(-5 * time.Minute)
 )
 
 // GetTXTRecords implements [DNSTXTProvider].
 func (b *BunnyDNSProvider) GetTXTRecords(ctx context.Context, subdomain string) (Record, error) {
-	url := fmt.Sprintf("%s/dnszone/%s/", b.config.BunnyBaseURL, b.config.BunnyZoneID)
-
-	now := time.Now()
-	if (cacheTime.Add(time.Minute * 5)).After(now) {
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return Record{}, err
-		}
-		req.Header.Add("AccessKey", b.config.BunnyAPIToken)
-
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return Record{}, err
-		}
-		defer res.Body.Close()
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return Record{}, err
-		}
-		var result BunnyGetZoneResponse
-		err = json.Unmarshal(body, &result)
-		if err != nil {
-			return Record{}, err
-		}
-		CacheGetResponse = result
+	records, err := b.GetAllRecord(ctx)
+	if err != nil {
+		return Record{}, err
 	}
 
-	for _, value := range CacheGetResponse.Records {
-		if value.Type == 3 && value.Name == subdomain {
-			return Record{
-				ID:        strconv.Itoa(value.ID),
-				Subdomain: value.Name,
-				Type:      TXTRecord,
-				Content:   value.Value,
-				TTL:       value.TTL,
-				Comment:   value.Comment,
-			}, nil
+	for _, value := range records {
+		if value.Subdomain == subdomain {
+			return value, nil
 		}
 	}
-
 	return Record{}, fmt.Errorf("%s not found in record", subdomain)
 }
 
@@ -212,4 +180,54 @@ func (b *BunnyDNSProvider) UpdateTXTRecord(ctx context.Context, id string, recor
 	}
 	fmt.Println(string(body))
 	return record, nil
+}
+
+// GetAllRecord implements [DNSTXTProvider].
+func (b *BunnyDNSProvider) GetAllRecord(ctx context.Context) ([]Record, error) {
+	records := make([]Record, 0)
+	url := fmt.Sprintf("%s/dnszone/%s/", b.config.BunnyBaseURL, b.config.BunnyZoneID)
+
+	now := time.Now()
+	if (lastCacheTime.Add(time.Second * time.Duration(b.config.ResponseCacheTime))).Before(now) {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return records, err
+		}
+		req.Header.Add("AccessKey", b.config.BunnyAPIToken)
+
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return records, err
+		}
+		defer res.Body.Close()
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return records, err
+		}
+		var result BunnyGetZoneResponse
+		err = json.Unmarshal(body, &result)
+		if err != nil {
+			return records, err
+		}
+		CacheGetResponse = result
+	}
+
+	for _, record := range CacheGetResponse.Records {
+		// 3 -> TXT record type in bunny
+		if record.Type == 3 {
+			records = append(records, Record{
+				ID:        record.ID,
+				Subdomain: record.Name,
+				Type:      TXTRecord,
+				Content:   record.Value,
+				TTL:       record.TTL,
+				Comment:   record.Comment,
+			})
+		}
+	}
+
+	fmt.Println("Total Records: ", len(CacheGetResponse.Records))
+	fmt.Println("Total TXT Records: ", len(records))
+	return records, nil
 }

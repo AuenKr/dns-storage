@@ -73,7 +73,7 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 				time.Sleep(1000 * time.Millisecond)
 				continue
 			}
-			err = f.dnsProviderClient.DeleteTXTRecord(ctx, record.ID)
+			err = f.dnsProviderClient.DeleteTXTRecord(ctx, strconv.Itoa(record.ID))
 			if err != nil {
 				fmt.Println("Retrying: Error Deleting", err)
 				time.Sleep(1000 * time.Millisecond)
@@ -93,7 +93,7 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 			errChan <- err
 			return
 		}
-		err = f.dnsProviderClient.DeleteTXTRecord(ctx, indexRecord.ID)
+		err = f.dnsProviderClient.DeleteTXTRecord(ctx, strconv.Itoa(indexRecord.ID))
 		if err != nil {
 			errChan <- err
 			return
@@ -324,7 +324,7 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string, subdomain st
 			txtRecord := fmt.Sprintf("%s.%d", name, noChunks)
 			newRecord := createIndexRecord
 			newRecord.Content = txtRecord
-			_, err := f.dnsProviderClient.UpdateTXTRecord(ctx, newRecord.ID, newRecord)
+			_, err := f.dnsProviderClient.UpdateTXTRecord(ctx, strconv.Itoa(newRecord.ID), newRecord)
 			if err != nil {
 				fmt.Println("Error while creating last chunk", err)
 			}
