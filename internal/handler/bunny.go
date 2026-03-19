@@ -13,14 +13,17 @@ import (
 )
 
 type BunnyDNSProvider struct {
-	config *defaults.DefaultConfig
+	config     *defaults.DefaultConfig
+	dnsHandler DNSTXTHandler
 }
 
 func NewBunnyDNSProvider(
 	config *defaults.DefaultConfig,
+	dnsHandler DNSTXTHandler,
 ) DNSTXTProvider {
 	return &BunnyDNSProvider{
-		config: config,
+		config:     config,
+		dnsHandler: dnsHandler,
 	}
 }
 
@@ -33,7 +36,7 @@ type (
 		Value   string `json:"Value"`
 		Comment string `json:"Comment"`
 	}
-	BunnyDeleteRecordResponse = BunnyCreateRecordRequest
+	BunnyRecordResponse = BunnyCreateRecordRequest
 )
 
 // CreateTXTRecord implements [DNSTXTProvider].
@@ -41,6 +44,21 @@ func (b *BunnyDNSProvider) CreateTXTRecord(ctx context.Context, subdomain string
 	if len(value) > b.config.MaxTXTRecordCharacterSize {
 		return Record{}, fmt.Errorf("txt record value is too long")
 	}
+
+	// Checking existing record exists
+	// domain := subdomain + "." + b.config.Domain
+	// data, err := b.dnsHandler.ReadTXTRecord(domain)
+	// if err != nil {
+	// 	msg := err.Error()
+	// 	if strings.Contains(msg, "NXDOMAIN") || strings.Contains(msg, "no TXT record found for") {
+	// 		fmt.Println("Record does not exist")
+	// 	} else {
+	// 		return Record{}, err
+	// 	}
+	// }
+	// if data != "" {
+	// 	return Record{}, errors.New(fmt.Sprintln("record already exists", data, err))
+	// }
 
 	url := fmt.Sprintf("%s/dnszone/%s/records", b.config.BunnyBaseURL, b.config.BunnyZoneID)
 
@@ -77,7 +95,7 @@ func (b *BunnyDNSProvider) CreateTXTRecord(ctx context.Context, subdomain string
 	if err != nil {
 		return Record{}, err
 	}
-	var result BunnyDeleteRecordResponse
+	var result BunnyRecordResponse
 	err = json.Unmarshal(body, &result)
 	if err != nil {
 		fmt.Println(string(body))
@@ -95,12 +113,12 @@ func (b *BunnyDNSProvider) CreateTXTRecord(ctx context.Context, subdomain string
 }
 
 type BunnyGetZoneResponse struct {
-	ID          int                         `json:"Id"`
-	Domain      string                      `json:"Domain"`
-	Records     []BunnyDeleteRecordResponse `json:"Records"`
-	Nameserver1 string                      `json:"Nameserver1"`
-	Nameserver2 string                      `json:"Nameserver2"`
-	SoaEmail    string                      `json:"SoaEmail"`
+	ID          int                   `json:"Id"`
+	Domain      string                `json:"Domain"`
+	Records     []BunnyRecordResponse `json:"Records"`
+	Nameserver1 string                `json:"Nameserver1"`
+	Nameserver2 string                `json:"Nameserver2"`
+	SoaEmail    string                `json:"SoaEmail"`
 }
 
 var (

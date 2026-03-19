@@ -38,7 +38,8 @@ func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
 		return "", fmt.Errorf("nil DNS response")
 	}
 	if resp.Rcode != dns.RcodeSuccess {
-		return "", fmt.Errorf("dns query failed: %s", dns.RcodeToString[resp.Rcode])
+		// NXDOMAIN means: the DNS server replied successfully but the queried name does not exist in DNS
+		return "", fmt.Errorf("dns query failed: %s\n%#v", dns.RcodeToString[resp.Rcode], resp)
 	}
 	for _, rr := range resp.Answer {
 		txt, ok := rr.(*dns.TXT)

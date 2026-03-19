@@ -51,7 +51,7 @@ func (c *cli) Download(ctx context.Context, indexFileRecord string, filePath str
 			if !ok {
 				return errors.New("status channel closed")
 			}
-			fmt.Println(status)
+			fmt.Println("status:", status)
 		case err, ok := <-errChan:
 			if !ok {
 				return errors.New("error channel closed")
@@ -87,7 +87,24 @@ func (c *cli) Delete(ctx context.Context, indexFileRecord string) error {
 
 // Stream implements [CommandLine].
 func (c *cli) Stream(ctx context.Context, indexFileRecord string) error {
-	panic("unimplemented")
+	statusChan, errChan := c.FileHandler.Stream(ctx, indexFileRecord)
+
+	for {
+		select {
+		case status, ok := <-statusChan:
+			if !ok {
+				return errors.New("status channel closed")
+			}
+			fmt.Printf("%#v", status)
+		case err, ok := <-errChan:
+			if !ok {
+				return errors.New("error channel closed")
+			}
+			fmt.Println(err)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func NewCommandLine(

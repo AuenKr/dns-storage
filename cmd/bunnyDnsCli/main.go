@@ -77,6 +77,29 @@ func Run(flags DNSTXTCliOption, dnsTxtProvider handler.DNSTXTProvider) {
 		}
 
 		fmt.Println("Total Time Taken", time.Since(now))
+	case Test:
+		flags.Subdomain = "temptemp2"
+		temp := make([]int, 4000)
+		txtRecord := ""
+		for _, v := range temp {
+			txtRecord = txtRecord + strconv.Itoa(v)
+		}
+
+		now := time.Now()
+		for i := 2; ; {
+			now := time.Now()
+			record, err = dnsTxtProvider.CreateTXTRecord(ctx, flags.Subdomain, txtRecord)
+			if err != nil {
+				break
+			}
+
+			fmt.Printf("Created %d records\n", i)
+			fmt.Println("Time Taken", time.Since(now))
+			i++
+		}
+
+		fmt.Println("Time Taken", time.Since(now))
+
 	default:
 		err = errors.New("unknown mode" + string(flags.Mode))
 	}
@@ -95,6 +118,7 @@ const (
 	Get         TXTCLIMode = "get"
 	Delete      TXTCLIMode = "delete"
 	ResetDomain TXTCLIMode = "reset"
+	Test        TXTCLIMode = "test"
 )
 
 type DNSTXTCliOption struct {
@@ -138,6 +162,8 @@ func parseFlag() (DNSTXTCliOption, error) {
 			err = append(err, errors.New("id is required"))
 		}
 	case ResetDomain:
+	// No input required
+	case Test:
 	// No input required
 	default:
 		err = append(err, errors.New("unknown mode"+mode))
