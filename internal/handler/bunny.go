@@ -229,6 +229,7 @@ func (b *BunnyDNSProvider) GetAllRecord(ctx context.Context) ([]Record, error) {
 			return records, err
 		}
 		CacheGetResponse = result
+		fmt.Println("All record Fetched and cached")
 	}
 
 	for _, record := range CacheGetResponse.Records {

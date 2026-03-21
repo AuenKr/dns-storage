@@ -181,6 +181,8 @@ func parseFlag() (DNSTXTCliOption, error) {
 	flags.Mode = TXTCLIMode(mode)
 	flags.Subdomain = subdomain
 	flags.Value = value
+	flags.ID = id
 
+	fmt.Printf("Flags: %#v", flags)
 	return flags, nil
 }

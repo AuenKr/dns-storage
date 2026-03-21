@@ -8,6 +8,8 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"dns-storage/pkg/defaults"
@@ -124,10 +126,12 @@ func (h *HTTPHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Add("Content-Type", "application/json")
 
+	temp := strings.Split(fileStatus.Subdomain, ".")
+	subdomain := strings.Join(temp[:len(temp)-1], ".")
 	response := fmt.Sprintf(`{
 	"status": "success",
 	"indexRecord": "%s.%s"
-	}`, fileStatus.Subdomain, h.config.Domain)
+		}`, subdomain, h.config.Domain)
 
 	_, err = w.Write([]byte(response))
 	if err != nil {
@@ -203,45 +207,68 @@ func (h *HTTPHandler) processUpload(r *http.Request) (FileStatus, error) {
 	if err != nil {
 		return fileStatus, err
 	}
+	fmt.Printf("Index Created %#v", createIndexRecord)
 	// If some error occur update the index file txt record properly
 	defer func() {
+		fmt.Println("Defer function running")
 		txtRecord := fmt.Sprintf("%s.%d", name, fileStatus.CurrentChunk)
 		newRecord := createIndexRecord
 		newRecord.Content = txtRecord
-		_, err := h.dnsProviderClient.UpdateTXTRecord(ctx, strconv.Itoa(newRecord.ID), newRecord)
+		data, err := h.dnsProviderClient.UpdateTXTRecord(ctx, strconv.Itoa(newRecord.ID), newRecord)
 		if err != nil {
 			fmt.Println("Error while creating last chunk", err)
 		}
-		fmt.Println("File Last chunk Complete", createIndexRecord)
+		fmt.Printf("Index Created %#v", data)
+		fmt.Println("File Last chunk Complete", data)
 	}()
 
-	data := make([]byte, h.config.GetMaxChunkByteSize())
-	var offset int64 = 0
+	var mainErr error
+	for fileStatus.CurrentChunk < fileStatus.TotalChunks {
+		wg := sync.WaitGroup{}
+		for i := 0; i < h.config.UploadBatchSize && i+fileStatus.CurrentChunk < fileStatus.TotalChunks; i++ {
+			wg.Add(1)
+			go func(currentChunk int) {
+				defer wg.Done()
+				data := make([]byte, h.config.GetMaxChunkByteSize())
 
-	for {
-		n, err := file.ReadAt(data, offset)
-		if n == 0 && err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fileStatus, err
+				offset := int64(currentChunk * h.config.GetMaxChunkByteSize())
+				n, err := file.ReadAt(data, offset)
+				if n == 0 && err != nil {
+					if err == io.EOF {
+						return
+					}
+					mainErr = err
+					return
+				}
+				data = data[:n]
+				chunkSubdomain := fmt.Sprintf("%s.%d", subdomain, currentChunk)
+				base64Value := base64.StdEncoding.EncodeToString(data)
+				_, err = h.dnsProviderClient.CreateTXTRecord(ctx, chunkSubdomain, base64Value)
+				if err != nil {
+					mainErr = err
+					return
+				}
+				fmt.Println("File Chunk", currentChunk, "subdomain", chunkSubdomain, "bytes written", n, time.Since(startTime))
+			}(i + fileStatus.CurrentChunk)
 		}
-		data = data[:n]
-		subdomain := fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
-		base64Value := base64.StdEncoding.EncodeToString(data)
-		_, err = h.dnsProviderClient.CreateTXTRecord(ctx, subdomain, base64Value)
-		if err != nil {
-			return fileStatus, err
+		fmt.Println("Waiting for all goroutines to finish", h.config.UploadBatchSize)
+		wg.Wait()
+		if mainErr != nil {
+			break
 		}
-		offset += int64(n)
-
-		fileStatus.Subdomain = subdomain
-		fmt.Println("File Chunk", fileStatus.CurrentChunk, " bytes written ", n, time.Since(startTime))
-		fileStatus.CurrentChunk++
+		if fileStatus.CurrentChunk+h.config.UploadBatchSize > fileStatus.TotalChunks {
+			fileStatus.CurrentChunk = fileStatus.TotalChunks - h.config.UploadBatchSize
+		}
+		fileStatus.CurrentChunk += h.config.UploadBatchSize
+		fileStatus.Subdomain = fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
+	}
+	if mainErr != nil {
+		return fileStatus, mainErr
 	}
 
 	indexFile := fmt.Sprintf("%s.%s", createIndexRecord.Subdomain, h.config.Domain)
 	fmt.Println("Total Time Taken", time.Since(startTime))
 	fmt.Println("Index File domain", indexFile)
+	fmt.Printf("FileStatus: %#v", fileStatus)
 	return fileStatus, nil
 }

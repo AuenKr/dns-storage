@@ -72,9 +72,9 @@ func NewDefaultConfig() *DefaultConfig {
 
 	// BatchSize Settings
 	DownloadBatchSize, _ := strconv.Atoi(getDefaultValue("DOWNLOAD_BATCH_SIZE", "1"))
-	UploadBatchSize, _ := strconv.Atoi(getDefaultValue("UPLOAD_BATCH_SIZE", "5"))
+	UploadBatchSize, _ := strconv.Atoi(getDefaultValue("UPLOAD_BATCH_SIZE", "20"))
 	DeleteBatchSize, _ := strconv.Atoi(getDefaultValue("DELETE_BATCH_SIZE", "1"))
-	StreamBatchSize, _ := strconv.Atoi(getDefaultValue("STREAM_BATCH_SIZE", "10"))
+	StreamBatchSize, _ := strconv.Atoi(getDefaultValue("STREAM_BATCH_SIZE", "20"))
 
 	DNSRetryLimit, _ := strconv.Atoi(getDefaultValue("DNS_RETRY_LIMIT", "8"))
 
@@ -135,7 +135,5 @@ func (c *DefaultConfig) GetMaxChunkByteSize() int {
 	ratio := base64Character / binaryCharacter
 
 	maxChunkByteSize := math.Ceil(float64(c.MaxTXTRecordCharacterSize) * ratio)
-
-	fmt.Println("MaxChunkByteSize:", maxChunkByteSize)
 	return int(maxChunkByteSize)
 }
