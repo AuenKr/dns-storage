@@ -31,6 +31,11 @@ type DefaultConfig struct {
 	UploadBatchSize   int
 	StreamBatchSize   int
 	DeleteBatchSize   int
+
+	DNSRetryLimit int // For DNS query
+
+	// API Server
+	HTTPPort int
 }
 
 func NewDefaultConfig() *DefaultConfig {
@@ -67,9 +72,14 @@ func NewDefaultConfig() *DefaultConfig {
 
 	// BatchSize Settings
 	DownloadBatchSize, _ := strconv.Atoi(getDefaultValue("DOWNLOAD_BATCH_SIZE", "1"))
-	UploadBatchSize, _ := strconv.Atoi(getDefaultValue("UPLOAD_BATCH_SIZE", "1"))
+	UploadBatchSize, _ := strconv.Atoi(getDefaultValue("UPLOAD_BATCH_SIZE", "5"))
 	DeleteBatchSize, _ := strconv.Atoi(getDefaultValue("DELETE_BATCH_SIZE", "1"))
-	StreamBatchSize, _ := strconv.Atoi(getDefaultValue("STREAM_BATCH_SIZE", "1"))
+	StreamBatchSize, _ := strconv.Atoi(getDefaultValue("STREAM_BATCH_SIZE", "10"))
+
+	DNSRetryLimit, _ := strconv.Atoi(getDefaultValue("DNS_RETRY_LIMIT", "8"))
+
+	// API Server
+	httpPort, _ := strconv.Atoi(getDefaultValue("HTTP_PORT", "8080"))
 
 	config := &DefaultConfig{
 		Domain:           domain,
@@ -92,9 +102,12 @@ func NewDefaultConfig() *DefaultConfig {
 		UploadBatchSize:   UploadBatchSize,
 		DeleteBatchSize:   DeleteBatchSize,
 		StreamBatchSize:   StreamBatchSize,
+		DNSRetryLimit:     DNSRetryLimit,
+
+		HTTPPort: httpPort,
 	}
 
-	fmt.Printf("Config:\n%#v\n", config)
+	fmt.Printf("\nConfig:\n%#v\n\n", config)
 	return config
 }
 

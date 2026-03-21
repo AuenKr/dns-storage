@@ -12,6 +12,7 @@ var Module = fx.Options(
 	fx.Provide(handler.NewDNSHandler),
 	fx.Provide(handler.NewBunnyDNSProvider),
 	fx.Provide(handler.NewFileHander),
+	fx.Provide(handler.NewHTTPHandler),
 	fx.Provide(client.NewDNSClient),
 	fx.Provide(cli.NewFlags),
 	fx.Provide(cli.NewCommandLine),

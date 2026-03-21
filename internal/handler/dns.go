@@ -11,7 +11,7 @@ import (
 )
 
 type DNSTXTHandler interface {
-	ReadTXTRecord(domain string) (string, error)
+	ReadTXTRecord(ctx context.Context, domain string) (string, error)
 }
 
 type DNSHandler struct {
@@ -26,9 +26,9 @@ func NewDNSHandler(client *dns.Client, config *defaults.DefaultConfig) DNSTXTHan
 	}
 }
 
-func (d *DNSHandler) ReadTXTRecord(domain string) (string, error) {
+func (d *DNSHandler) ReadTXTRecord(ctx context.Context, domain string) (string, error) {
 	msg := dns.NewMsg(domain, dns.TypeTXT)
-	resp, _, err := d.client.Exchange(context.TODO(), msg, string(d.config.NetworkLayer), d.config.DNSServerAddress)
+	resp, _, err := d.client.Exchange(ctx, msg, string(d.config.NetworkLayer), d.config.DNSServerAddress)
 	if err != nil {
 		fmt.Println("err", err)
 		fmt.Printf("%#v\n", resp)

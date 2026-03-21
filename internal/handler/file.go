@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"dns-storage/pkg/defaults"
@@ -43,7 +44,7 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 		defer close(errChan)
 		// Check correct index file record
 		// Get TXT Record
-		txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
+		txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFileRecord)
 		if err != nil {
 			errChan <- err
 			return
@@ -53,16 +54,18 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 
 		fmt.Println("TXT Record:", txtRecord)
 		temp := strings.Split(txtRecord, ".")
-		noChunks, err := strconv.Atoi(temp[len(temp)-1])
+		fileName := strings.Join(temp[:len(temp)-1], ".")
+		totalChunks, err := strconv.Atoi(temp[len(temp)-1]) // 0 based index
 		if err != nil {
 			errChan <- err
 			return
 		}
-		totalChunks := noChunks + 1
+
 		fileStatus := FileStatus{
 			TotalChunks:  totalChunks,
 			CurrentChunk: 0,
 			Subdomain:    subdomain,
+			FileName:     fileName,
 		}
 
 		for fileStatus.CurrentChunk < fileStatus.TotalChunks {
@@ -114,7 +117,7 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string, fil
 
 		startTime := time.Now()
 		// Get TXT Record
-		txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
+		txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFileRecord)
 		if err != nil {
 			fmt.Println("ReadTXTRecord Error for :", indexFileRecord)
 			errChan <- err
@@ -126,12 +129,11 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string, fil
 		// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK|100>
 		temp := strings.Split(txtRecord, ".")
 		fileName := strings.Join(temp[:len(temp)-1], ".")
-		noChunks, err := strconv.Atoi(temp[len(temp)-1]) // 0 based index
+		totalChunks, err := strconv.Atoi(temp[len(temp)-1]) // 0 based index
 		if err != nil {
 			errChan <- err
 			return
 		}
-		totalChunks := noChunks + 1
 		fmt.Println("FileName:", fileName)
 		fmt.Println("Total noChunks:", totalChunks)
 		fmt.Println("Total Time Taken", time.Since(startTime))
@@ -140,6 +142,7 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string, fil
 			TotalChunks:  totalChunks,
 			CurrentChunk: 0,
 			Subdomain:    subdomain,
+			FileName:     fileName,
 		}
 
 		var file *os.File
@@ -162,13 +165,21 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string, fil
 
 		fileStatus.CurrentChunk = downloadChunks
 
+		retryCounter := 0
 		for fileStatus.CurrentChunk < fileStatus.TotalChunks {
 			domain := fmt.Sprintf("%s.%d.%s", subdomain, fileStatus.CurrentChunk, f.config.Domain)
-			txtRecord, err := f.dnsClient.ReadTXTRecord(domain)
+			txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, domain)
 			if err != nil {
+				fmt.Println("Retrying: Error Reading", err, domain, retryCounter)
+				if retryCounter < f.config.DNSRetryLimit {
+					retryCounter++
+					continue
+				}
 				errChan <- err
 				return
 			}
+			retryCounter = 0
+
 			rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
 			if err != nil {
 				errChan <- err
@@ -207,7 +218,7 @@ func (f *FileUploader) Stream(ctx context.Context, indexFileRecord string) (<-ch
 
 		startTime := time.Now()
 		// Get TXT Record
-		txtRecord, err := f.dnsClient.ReadTXTRecord(indexFileRecord)
+		txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFileRecord)
 		if err != nil {
 			errChan <- err
 			return
@@ -218,12 +229,11 @@ func (f *FileUploader) Stream(ctx context.Context, indexFileRecord string) (<-ch
 		// TXT Records: <NAME.FILE_TYPE>.<END_CHUNK|100>
 		temp := strings.Split(txtRecord, ".")
 		fileName := strings.Join(temp[:len(temp)-1], ".")
-		noChunks, err := strconv.Atoi(temp[len(temp)-1])
+		totalChunks, err := strconv.Atoi(temp[len(temp)-1]) // 0 based index
 		if err != nil {
 			errChan <- err
 			return
 		}
-		totalChunks := noChunks + 1
 		fmt.Println("FileName:", fileName)
 		fmt.Println("Total noChunks:", totalChunks)
 		fmt.Println("Total Time Taken", time.Since(startTime))
@@ -234,24 +244,66 @@ func (f *FileUploader) Stream(ctx context.Context, indexFileRecord string) (<-ch
 				TotalChunks:  totalChunks,
 				CurrentChunk: 0,
 				Subdomain:    subdomain,
+				FileName:     fileName,
+				BatchSize:    f.config.StreamBatchSize,
 			},
 		}
 
 		for fileStream.MetaData.CurrentChunk < fileStream.MetaData.TotalChunks {
-			domain := fmt.Sprintf("%s.%d.%s", subdomain, fileStream.MetaData.CurrentChunk, f.config.Domain)
-			txtRecord, err := f.dnsClient.ReadTXTRecord(domain)
-			if err != nil {
-				errChan <- err
+			streamDataInOrder := make([][]byte, fileStream.MetaData.BatchSize)
+
+			isError := false
+			wg := sync.WaitGroup{}
+			for i := 0; i < fileStream.MetaData.BatchSize && i+fileStream.MetaData.CurrentChunk < fileStream.MetaData.TotalChunks; i++ {
+				wg.Add(1)
+				go func(j, currentChunk int, dataStore [][]byte) {
+					retryCounter := 0
+					defer wg.Done()
+
+					var txtRecord string
+					var err error
+					for {
+						domain := fmt.Sprintf("%s.%d.%s", subdomain, j+currentChunk, f.config.Domain)
+						txtRecord, err = f.dnsClient.ReadTXTRecord(ctx, domain)
+						if err != nil {
+							fmt.Println("Retrying: Error Reading", err, domain, retryCounter)
+							if retryCounter < f.config.DNSRetryLimit {
+								retryCounter++
+								continue
+							}
+							errChan <- err
+							isError = true
+							return
+						}
+						break
+					}
+
+					rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
+					if err != nil {
+						isError = true
+						errChan <- err
+						return
+					}
+					dataStore[j] = rawBinary
+				}(i, fileStream.MetaData.CurrentChunk, streamDataInOrder)
+			}
+			wg.Wait()
+			if isError {
+				fmt.Println("Error while reading data in the batch")
 				return
 			}
-			rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
-			if err != nil {
-				errChan <- err
-				return
+
+			rawBinary := []byte{}
+			for _, data := range streamDataInOrder {
+				rawBinary = append(rawBinary, data...)
 			}
+
 			fileStream.Data = rawBinary
 			fileStream.MetaData.Subdomain = fmt.Sprintf("%s.%d", subdomain, fileStream.MetaData.CurrentChunk)
-			fileStream.MetaData.CurrentChunk++
+			if fileStream.MetaData.CurrentChunk+fileStream.MetaData.BatchSize > fileStream.MetaData.TotalChunks {
+				fileStream.MetaData.CurrentChunk = fileStream.MetaData.TotalChunks - fileStream.MetaData.BatchSize
+			}
+			fileStream.MetaData.CurrentChunk += fileStream.MetaData.BatchSize
 			fileStatusChan <- fileStream
 		}
 
@@ -296,6 +348,7 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string, subdomain st
 			TotalChunks:  totalChunks,
 			CurrentChunk: 0,
 			Subdomain:    subdomain,
+			FileName:     fileInfo.Name(),
 		}
 
 		// Create a index TXT record for that chuck file
@@ -306,7 +359,7 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string, subdomain st
 			errChan <- err
 			return
 		}
-
+		//
 		data := make([]byte, f.config.GetMaxChunkByteSize())
 		noChunks := 0
 		var offset int64 = 0

@@ -32,7 +32,8 @@ func (c *cli) Upload(ctx context.Context, filePath string, subdomain string) err
 			fmt.Println(status)
 		case err, ok := <-errChan:
 			if !ok {
-				return errors.New("error channel closed")
+				fmt.Println("error channel closed")
+				return nil
 			}
 			fmt.Println(err)
 		case <-ctx.Done():
@@ -54,7 +55,8 @@ func (c *cli) Download(ctx context.Context, indexFileRecord string, filePath str
 			fmt.Println("status:", status)
 		case err, ok := <-errChan:
 			if !ok {
-				return errors.New("error channel closed")
+				fmt.Println("error channel closed")
+				return nil
 			}
 			fmt.Println(err)
 		case <-ctx.Done():
@@ -76,7 +78,8 @@ func (c *cli) Delete(ctx context.Context, indexFileRecord string) error {
 			fmt.Println(status)
 		case err, ok := <-errChan:
 			if !ok {
-				return errors.New("error channel closed")
+				fmt.Println("error channel closed")
+				return nil
 			}
 			fmt.Println(err)
 		case <-ctx.Done():
@@ -98,7 +101,8 @@ func (c *cli) Stream(ctx context.Context, indexFileRecord string) error {
 			fmt.Printf("%#v", status)
 		case err, ok := <-errChan:
 			if !ok {
-				return errors.New("error channel closed")
+				fmt.Println("error channel closed")
+				return nil
 			}
 			fmt.Println(err)
 		case <-ctx.Done():

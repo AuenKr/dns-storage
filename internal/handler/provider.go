@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net/http"
 )
 
 type DNSTXTProvider interface {
@@ -38,9 +39,19 @@ type FileStatus struct {
 	TotalChunks  int
 	CurrentChunk int
 	Subdomain    string
+	FileName     string
+	BatchSize    int
 }
 
 type FileStream struct {
 	Data     []byte
 	MetaData FileStatus
+}
+
+type APIHandler interface {
+	Health(w http.ResponseWriter, r *http.Request)
+	// Read the stream from the client, and upload that using pipe
+	Upload(w http.ResponseWriter, r *http.Request)
+	// Get the data from dns, and pipe that to client
+	Download(w http.ResponseWriter, r *http.Request)
 }
