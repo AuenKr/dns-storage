@@ -204,20 +204,13 @@ func (f *FileUploader) Download(ctx context.Context, indexFileRecord string, fil
 
 		fileStatus.CurrentChunk = downloadChunks
 
-		retryCounter := 0
 		for fileStatus.CurrentChunk < fileStatus.TotalChunks {
 			domain := fmt.Sprintf("%s.%d.%s", subdomain, fileStatus.CurrentChunk, f.config.Domain)
 			txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, domain)
 			if err != nil {
-				fmt.Println("Retrying: Error Reading", err, domain, retryCounter)
-				if retryCounter < f.config.DNSRetryLimit {
-					retryCounter++
-					continue
-				}
 				errChan <- err
 				return
 			}
-			retryCounter = 0
 
 			rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)
 			if err != nil {
@@ -296,25 +289,17 @@ func (f *FileUploader) Stream(ctx context.Context, indexFileRecord string) (<-ch
 			for i := 0; i < fileStream.MetaData.BatchSize && i+fileStream.MetaData.CurrentChunk < fileStream.MetaData.TotalChunks; i++ {
 				wg.Add(1)
 				go func(j, currentChunk int, dataStore [][]byte) {
-					retryCounter := 0
 					defer wg.Done()
 
 					var txtRecord string
 					var err error
-					for {
-						domain := fmt.Sprintf("%s.%d.%s", subdomain, j+currentChunk, f.config.Domain)
-						txtRecord, err = f.dnsClient.ReadTXTRecord(ctx, domain)
-						if err != nil {
-							fmt.Println("Retrying: Error Reading", err, domain, retryCounter)
-							if retryCounter < f.config.DNSRetryLimit {
-								retryCounter++
-								continue
-							}
-							errChan <- err
-							isError = true
-							return
-						}
-						break
+
+					domain := fmt.Sprintf("%s.%d.%s", subdomain, j+currentChunk, f.config.Domain)
+					txtRecord, err = f.dnsClient.ReadTXTRecord(ctx, domain)
+					if err != nil {
+						errChan <- err
+						isError = true
+						return
 					}
 
 					rawBinary, err := base64.StdEncoding.DecodeString(txtRecord)

@@ -101,7 +101,7 @@ func NewDefaultConfig() *DefaultConfig {
 		ResponseCacheTime: responseCacheTime,
 
 		NetworkLayer:              networkLayer,
-		MaxTXTRecordCharacterSize: 4000,
+		MaxTXTRecordCharacterSize: maxTXTRecordCharacterSize,
 
 		CompressionEnabled: compressionEnabled == "true",
 

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"dns-storage/internal/handler"
@@ -22,93 +21,56 @@ type cli struct {
 // Upload implements [CommandLine].
 func (c *cli) Upload(ctx context.Context, filePath string, subdomain string) error {
 	statusChan, errChan := c.FileHandler.Upload(ctx, filePath, subdomain)
-
-	for {
-		select {
-		case status, ok := <-statusChan:
-			if !ok {
-				return errors.New("status channel closed")
-			}
-			fmt.Println(status)
-		case err, ok := <-errChan:
-			if !ok {
-				fmt.Println("error channel closed")
-				return nil
-			}
-			fmt.Println(err)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return waitForResult(ctx, statusChan, errChan, func(status handler.FileStatus) {
+		fmt.Println(status)
+	})
 }
 
 // Download implements [CommandLine].
 func (c *cli) Download(ctx context.Context, indexFileRecord string, filePath string) error {
 	statusChan, errChan := c.FileHandler.Download(ctx, indexFileRecord, filePath)
-
-	for {
-		select {
-		case status, ok := <-statusChan:
-			if !ok {
-				return errors.New("status channel closed")
-			}
-			fmt.Println("status:", status)
-		case err, ok := <-errChan:
-			if !ok {
-				fmt.Println("error channel closed")
-				return nil
-			}
-			fmt.Println(err)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return waitForResult(ctx, statusChan, errChan, func(status handler.FileStatus) {
+		fmt.Println("status:", status)
+	})
 }
 
 // Delete implements [CommandLine].
 func (c *cli) Delete(ctx context.Context, indexFileRecord string) error {
 	statusChan, errChan := c.FileHandler.Delete(ctx, indexFileRecord)
-
-	for {
-		select {
-		case status, ok := <-statusChan:
-			if !ok {
-				return errors.New("status channel closed")
-			}
-			fmt.Println(status)
-		case err, ok := <-errChan:
-			if !ok {
-				fmt.Println("error channel closed")
-				return nil
-			}
-			fmt.Println(err)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return waitForResult(ctx, statusChan, errChan, func(status handler.FileStatus) {
+		fmt.Println(status)
+	})
 }
 
 // Stream implements [CommandLine].
 func (c *cli) Stream(ctx context.Context, indexFileRecord string) error {
 	statusChan, errChan := c.FileHandler.Stream(ctx, indexFileRecord)
+	return waitForResult(ctx, statusChan, errChan, func(status handler.FileStream) {
+		fmt.Printf("%#v", status)
+	})
+}
 
-	for {
+func waitForResult[T any](ctx context.Context, statusChan <-chan T, errChan <-chan error, printStatus func(T)) error {
+	for statusChan != nil || errChan != nil {
 		select {
 		case status, ok := <-statusChan:
 			if !ok {
-				return errors.New("status channel closed")
+				statusChan = nil
+				continue
 			}
-			fmt.Printf("%#v", status)
+			printStatus(status)
 		case err, ok := <-errChan:
 			if !ok {
-				fmt.Println("error channel closed")
-				return nil
+				errChan = nil
+				continue
 			}
-			fmt.Println(err)
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
+
+	return nil
 }
 
 func NewCommandLine(

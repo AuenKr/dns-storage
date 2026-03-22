@@ -1,12 +1,12 @@
 package handler
 
 import (
+	"path/filepath"
 	"strings"
 )
 
 func getFileTypeHeaderFromName(fileName string) string {
-	temp := strings.Split(fileName, ".")
-	fileType := temp[len(temp)-1]
+	fileType := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), ".")
 	fileTypeHeader := "text/plain"
 	switch fileType {
 	// Text formats
@@ -41,7 +41,7 @@ func getFileTypeHeaderFromName(fileName string) string {
 	case "mp4":
 		fileTypeHeader = "video/mp4"
 	case "webm":
-		fileTypeHeader = "video/mpeg"
+		fileTypeHeader = "video/webm"
 	case "ogg":
 		fileTypeHeader = "video/ogg"
 

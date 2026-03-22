@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,20 +28,42 @@ func NewDNSHandler(client *dns.Client, config *defaults.DefaultConfig) DNSTXTHan
 }
 
 func (d *DNSHandler) ReadTXTRecord(ctx context.Context, domain string) (string, error) {
+	if domain == "" {
+		return "", errors.New("domain is empty")
+	}
 	msg := dns.NewMsg(domain, dns.TypeTXT)
-	resp, _, err := d.client.Exchange(ctx, msg, string(d.config.NetworkLayer), d.config.DNSServerAddress)
+
+	retryCounter := 0
+	var resp *dns.Msg
+	var err error
+	for retryCounter < d.config.DNSRetryLimit {
+		resp, _, err = d.client.Exchange(ctx, msg, string(d.config.NetworkLayer), d.config.DNSServerAddress)
+		if err != nil {
+			retryCounter++
+			continue
+		}
+		if resp == nil {
+			return "", fmt.Errorf("nil DNS response")
+		}
+		if resp.Rcode != dns.RcodeSuccess {
+			// NXDOMAIN means: the DNS server replied successfully but the queried name does not exist in DNS
+			// Just retrying
+			retryCounter++
+			continue
+		}
+		break
+	}
+
 	if err != nil {
 		fmt.Println("err", err)
 		fmt.Printf("%#v\n", resp)
 		return "", err
 	}
-	if resp == nil {
-		return "", fmt.Errorf("nil DNS response")
-	}
 	if resp.Rcode != dns.RcodeSuccess {
 		// NXDOMAIN means: the DNS server replied successfully but the queried name does not exist in DNS
 		return "", fmt.Errorf("dns query failed: %s\n%#v", dns.RcodeToString[resp.Rcode], resp)
 	}
+
 	for _, rr := range resp.Answer {
 		txt, ok := rr.(*dns.TXT)
 		if !ok {
