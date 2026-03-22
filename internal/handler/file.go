@@ -42,15 +42,15 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 	go func() {
 		defer close(fileStatusChan)
 		defer close(errChan)
-		// Check correct index file record
-		// Get TXT Record
+
+		fmt.Println("Delete request: ReadTXTRecord", indexFileRecord)
 		txtRecord, err := f.dnsClient.ReadTXTRecord(ctx, indexFileRecord)
 		if err != nil {
 			errChan <- err
 			return
 		}
 
-		subdomain := strings.Split(indexFileRecord, "."+f.config.Domain)[0]
+		baseSubdomain := strings.Split(indexFileRecord, "."+f.config.Domain)[0]
 
 		fmt.Println("TXT Record:", txtRecord)
 		temp := strings.Split(txtRecord, ".")
@@ -64,45 +64,82 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 		fileStatus := FileStatus{
 			TotalChunks:  totalChunks,
 			CurrentChunk: 0,
-			Subdomain:    subdomain,
+			Subdomain:    baseSubdomain,
 			FileName:     fileName,
+			BatchSize:    f.config.DeleteBatchSize,
 		}
 
 		for fileStatus.CurrentChunk < fileStatus.TotalChunks {
-			subdomain := fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
-			record, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
-			if err != nil {
-				fileStatus.CurrentChunk++
-				// continue
-				fmt.Println("Retrying: Error Reading", err, subdomain)
-				errChan <- err
-				return
+			batchStart := fileStatus.CurrentChunk
+			batchCount := f.config.DeleteBatchSize
+			if batchStart+batchCount > fileStatus.TotalChunks {
+				batchCount = fileStatus.TotalChunks - batchStart
 			}
-			err = f.dnsProviderClient.DeleteTXTRecord(ctx, strconv.Itoa(record.ID))
-			if err != nil {
-				fmt.Println("Retrying: Error Deleting", err)
-				errChan <- err
-				return
-			}
-			fmt.Println("Deleted", subdomain)
 
-			fileStatus.Subdomain = subdomain
-			fileStatus.CurrentChunk++
+			wg := sync.WaitGroup{}
+			var mainErr error
+			var mainErrMu sync.Mutex
+
+			setMainErr := func(err error) {
+				mainErrMu.Lock()
+				defer mainErrMu.Unlock()
+				if mainErr == nil {
+					mainErr = err
+				}
+			}
+
+			for i := 0; i < batchCount; i++ {
+				currentChunk := batchStart + i
+				wg.Add(1)
+				go func(currentChunk int) {
+					defer wg.Done()
+
+					chunkSubdomain := fmt.Sprintf("%s.%d", baseSubdomain, currentChunk)
+					fmt.Println("Delete request: GetTXTRecords", chunkSubdomain)
+					record, err := f.dnsProviderClient.GetTXTRecords(ctx, chunkSubdomain)
+					if err != nil {
+						fmt.Println("Delete request failed: GetTXTRecords", err, chunkSubdomain)
+						setMainErr(err)
+						return
+					}
+
+					fmt.Println("Delete request: DeleteTXTRecord", record.ID, chunkSubdomain)
+					err = f.dnsProviderClient.DeleteTXTRecord(ctx, strconv.Itoa(record.ID))
+					if err != nil {
+						fmt.Println("Delete request failed: DeleteTXTRecord", err, record.ID, chunkSubdomain)
+						setMainErr(err)
+						return
+					}
+
+					fmt.Println("Deleted", chunkSubdomain)
+				}(currentChunk)
+			}
+
+			wg.Wait()
+			if mainErr != nil {
+				errChan <- mainErr
+				return
+			}
+
+			fileStatus.CurrentChunk += batchCount
+			fileStatus.Subdomain = fmt.Sprintf("%s.%d", baseSubdomain, batchStart+batchCount-1)
 			fileStatusChan <- fileStatus
 		}
 
-		indexRecord, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
+		fmt.Println("Delete request: GetTXTRecords", baseSubdomain)
+		indexRecord, err := f.dnsProviderClient.GetTXTRecords(ctx, baseSubdomain)
 		if err != nil {
 			errChan <- err
 			return
 		}
+
+		fmt.Println("Delete request: DeleteTXTRecord", indexRecord.ID, baseSubdomain)
 		err = f.dnsProviderClient.DeleteTXTRecord(ctx, strconv.Itoa(indexRecord.ID))
 		if err != nil {
 			errChan <- err
 			return
 		}
-		fileStatus.Subdomain = subdomain
-		fileStatusChan <- fileStatus
+
 		fmt.Println("Deleted index File", indexFileRecord)
 	}()
 

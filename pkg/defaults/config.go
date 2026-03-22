@@ -78,6 +78,11 @@ func NewDefaultConfig() *DefaultConfig {
 	DeleteBatchSize, _ := strconv.Atoi(getDefaultValue("DELETE_BATCH_SIZE", "100"))
 	StreamBatchSize, _ := strconv.Atoi(getDefaultValue("STREAM_BATCH_SIZE", "30"))
 
+	DownloadBatchSize = normalizeBatchSize(DownloadBatchSize)
+	UploadBatchSize = normalizeBatchSize(UploadBatchSize)
+	DeleteBatchSize = normalizeBatchSize(DeleteBatchSize)
+	StreamBatchSize = normalizeBatchSize(StreamBatchSize)
+
 	DNSRetryLimit, _ := strconv.Atoi(getDefaultValue("DNS_RETRY_LIMIT", "8"))
 
 	// API Server
@@ -119,6 +124,14 @@ func getDefaultValue(env string, defaultValue string) string {
 		res = defaultValue
 	}
 	return res
+}
+
+func normalizeBatchSize(batchSize int) int {
+	if batchSize <= 0 {
+		return 1
+	}
+
+	return batchSize
 }
 
 type NetworkLayer string

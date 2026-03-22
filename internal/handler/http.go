@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,7 +60,7 @@ func (h *HTTPHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	indexFileRecord := r.URL.Query().Get("file")
+	indexFileRecord := r.URL.Query().Get("url")
 	fmt.Println("indexFileRecord:", indexFileRecord)
 
 	isStream := r.URL.Query().Get("stream")
@@ -271,4 +272,117 @@ func (h *HTTPHandler) processUpload(r *http.Request) (FileStatus, error) {
 	fmt.Println("Index File domain", indexFile)
 	fmt.Printf("FileStatus: %#v", fileStatus)
 	return fileStatus, nil
+}
+
+// Delete implements [APIHandler].
+func (h *HTTPHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	indexFileRecord := r.URL.Query().Get("url")
+	if indexFileRecord == "" {
+		http.Error(w, "missing file query parameter", http.StatusBadRequest)
+		return
+	}
+
+	isStream := r.URL.Query().Get("stream") == "true"
+	var flusher http.Flusher
+	if isStream {
+		streamFlusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		flusher = streamFlusher
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+
+	statusChan, errChan := h.fileHandler.Delete(r.Context(), indexFileRecord)
+	encoder := json.NewEncoder(w)
+
+	getProgress := func(current, total int) float64 {
+		if total == 0 {
+			return 100
+		}
+		return math.Min((float64(current)/float64(total))*100, 100)
+	}
+
+	var lastStatus FileStatus
+	hasProgress := false
+
+	for statusChan != nil || errChan != nil {
+		select {
+		case status, ok := <-statusChan:
+			if !ok {
+				statusChan = nil
+				continue
+			}
+
+			hasProgress = true
+			lastStatus = status
+			if isStream {
+				err := encoder.Encode(map[string]any{
+					"status":        "in_progress",
+					"file":          status.FileName,
+					"subdomain":     status.Subdomain,
+					"deletedChunks": status.CurrentChunk,
+					"totalChunks":   status.TotalChunks,
+					"progress":      getProgress(status.CurrentChunk, status.TotalChunks),
+				})
+				if err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+		case err, ok := <-errChan:
+			if !ok {
+				errChan = nil
+				continue
+			}
+
+			if isStream {
+				_ = encoder.Encode(map[string]any{
+					"status": "error",
+					"error":  err.Error(),
+				})
+				flusher.Flush()
+				return
+			}
+
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = encoder.Encode(map[string]any{
+				"status": "error",
+				"error":  err.Error(),
+			})
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+
+	response := map[string]any{
+		"status":    "completed",
+		"file":      "",
+		"subdomain": indexFileRecord,
+		"progress":  100.0,
+	}
+	if hasProgress {
+		response["file"] = lastStatus.FileName
+		response["subdomain"] = lastStatus.Subdomain
+		response["deletedChunks"] = lastStatus.CurrentChunk
+		response["totalChunks"] = lastStatus.TotalChunks
+	}
+
+	if err := encoder.Encode(response); err != nil {
+		return
+	}
+	if isStream {
+		flusher.Flush()
+	}
 }

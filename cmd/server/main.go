@@ -32,6 +32,7 @@ func runServer(lc fx.Lifecycle, server handler.APIHandler, config *defaults.Defa
 	mux.HandleFunc("/", server.Health)
 	mux.HandleFunc("/upload", server.Upload)
 	mux.HandleFunc("/download", server.Download)
+	mux.HandleFunc("/delete", server.Delete)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.HTTPPort),

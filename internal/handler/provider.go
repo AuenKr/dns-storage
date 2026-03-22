@@ -54,4 +54,6 @@ type APIHandler interface {
 	Upload(w http.ResponseWriter, r *http.Request)
 	// Get the data from dns, and pipe that to client
 	Download(w http.ResponseWriter, r *http.Request)
+	// Delete the data from dns, and pipe that to client
+	Delete(w http.ResponseWriter, r *http.Request)
 }
