@@ -123,7 +123,7 @@ type BunnyGetZoneResponse struct {
 
 var (
 	CacheGetResponse BunnyGetZoneResponse
-	lastCacheTime    time.Time = time.Now().Add(-5 * time.Minute)
+	lastCacheTime    time.Time = time.Now()
 )
 
 // GetTXTRecords implements [DNSTXTProvider].
@@ -206,7 +206,7 @@ func (b *BunnyDNSProvider) GetAllRecord(ctx context.Context) ([]Record, error) {
 	url := fmt.Sprintf("%s/dnszone/%s/", b.config.BunnyBaseURL, b.config.BunnyZoneID)
 
 	now := time.Now()
-	if (lastCacheTime.Add(time.Second * time.Duration(b.config.ResponseCacheTime))).Before(now) {
+	if len(CacheGetResponse.Records) == 0 || (lastCacheTime.Add(b.config.ResponseCacheTime)).Before(now) {
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			return records, err
@@ -229,6 +229,7 @@ func (b *BunnyDNSProvider) GetAllRecord(ctx context.Context) ([]Record, error) {
 			return records, err
 		}
 		CacheGetResponse = result
+		lastCacheTime = now
 		fmt.Println("All record Fetched and cached")
 	}
 

@@ -72,6 +72,8 @@ func (f *FileUploader) Delete(ctx context.Context, indexFileRecord string) (<-ch
 			subdomain := fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
 			record, err := f.dnsProviderClient.GetTXTRecords(ctx, subdomain)
 			if err != nil {
+				fileStatus.CurrentChunk++
+				// continue
 				fmt.Println("Retrying: Error Reading", err, subdomain)
 				errChan <- err
 				return
@@ -359,10 +361,7 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string, subdomain st
 			errChan <- err
 			return
 		}
-		//
-		data := make([]byte, f.config.GetMaxChunkByteSize())
 		noChunks := 0
-		var offset int64 = 0
 
 		// If some error occur update the index file txt record properly
 		defer func() {
@@ -376,30 +375,49 @@ func (f *FileUploader) Upload(ctx context.Context, filePath string, subdomain st
 			fmt.Println("File Last chunk Complete", createIndexRecord)
 		}()
 
-		for {
-			n, err := file.ReadAt(data, offset)
-			if n == 0 && err != nil {
-				if err == io.EOF {
-					break
-				}
-				errChan <- err
-				return
-			}
-			data = data[:n]
-			subdomain := fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
-			base64Value := base64.StdEncoding.EncodeToString(data)
-			_, err = f.dnsProviderClient.CreateTXTRecord(ctx, subdomain, base64Value)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			offset += int64(n)
+		var mainErr error
+		for fileStatus.CurrentChunk < fileStatus.TotalChunks {
+			wg := sync.WaitGroup{}
+			for i := 0; i < f.config.UploadBatchSize && i+fileStatus.CurrentChunk < fileStatus.TotalChunks; i++ {
+				wg.Add(1)
+				go func(currentChunk int) {
+					defer wg.Done()
+					data := make([]byte, f.config.GetMaxChunkByteSize())
 
-			fileStatus.Subdomain = subdomain
+					offset := int64(currentChunk * f.config.GetMaxChunkByteSize())
+					n, err := file.ReadAt(data, offset)
+					if n == 0 && err != nil {
+						if err == io.EOF {
+							return
+						}
+						mainErr = err
+						return
+					}
+					data = data[:n]
+					chunkSubdomain := fmt.Sprintf("%s.%d", subdomain, currentChunk)
+					base64Value := base64.StdEncoding.EncodeToString(data)
+					_, err = f.dnsProviderClient.CreateTXTRecord(ctx, chunkSubdomain, base64Value)
+					if err != nil {
+						mainErr = err
+						return
+					}
+					fmt.Println("File Chunk", currentChunk, "subdomain", chunkSubdomain, "bytes written", n, time.Since(startTime))
+				}(i + fileStatus.CurrentChunk)
+			}
+			wg.Wait()
+			if mainErr != nil {
+				break
+			}
+			if fileStatus.CurrentChunk+f.config.UploadBatchSize > fileStatus.TotalChunks {
+				fileStatus.CurrentChunk = fileStatus.TotalChunks - f.config.UploadBatchSize
+			}
+			fileStatus.CurrentChunk += f.config.UploadBatchSize
+			fileStatus.Subdomain = fmt.Sprintf("%s.%d", subdomain, fileStatus.CurrentChunk)
 			fileStatusChan <- fileStatus
-
-			fmt.Println("File Chunk", noChunks, subdomain, time.Since(startTime))
-			fileStatus.CurrentChunk++
+		}
+		if mainErr != nil {
+			errChan <- mainErr
+			return
 		}
 
 		indexFile := fmt.Sprintf("%s.%s", createIndexRecord.Subdomain, f.config.Domain)
